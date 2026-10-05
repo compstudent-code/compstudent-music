@@ -68,7 +68,7 @@ const collectionState = new Set();
 let searchTerm = "";
 
 const $ = selector => document.querySelector(selector);
-const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
+const escapeHtml = value => String(value ?? "").replace(/[&<>\"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
 function markdown(text) {
   return String(text ?? "").split(/\n{2,}/).map(paragraph => {
     const safe = escapeHtml(paragraph)
@@ -136,7 +136,7 @@ function cardTemplate(song, index) {
   ].map(([label, values]) => `<div class="credit-row"><span class="credit-label">${label}</span><span>${values?.length ? values.map(escapeHtml).join(", ") : "—"}</span></div>`).join("");
   const links = (song.links || []).map((link, linkIndex) => `<button class="link-button" type="button" data-song="${songs.indexOf(song)}" data-link="${linkIndex}">${escapeHtml(link.title)} <small>${escapeHtml(link.type)}</small></button>`).join("");
   const songIndex = songs.indexOf(song);
-  return `<article class="song-card" data-detail="${songIndex}" tabindex="0" aria-label="View details for ${escapeHtml(song.title)}"><div class="card-top"><span class="song-number">${String(index + 1).padStart(2, "0")}</span>${collection}</div><div class="credit-list">${credits}</div><h2>${markdownInline(song.title)}</h2><div class="song-description">${shortDescription}${descriptionText.length > 125 ? ` <button class="expand-description" data-expand="${songIndex}" type="button">read more</button>` : ""}</div><div class="meta-list">${tags}</div><div class="song-details-hint">Click for all details ↗</div><div class="card-links">${links || `<span class="song-number">No links yet</span>`}</div></article>`;
+  return `<article class="song-card" data-detail="${songIndex}" tabindex="0" aria-label="View details for ${escapeHtml(song.title)}"><div class="card-top"><span class="song-number">${String(index + 1).padStart(2, "0")}</span>${collection}</div><h2>${escapeHtml(song.title)}</h2><div class="meta-list">${tags}</div><p class="song-description">${shortDescription}<button class="expand-description" type="button" data-expand="${songIndex}">Read more</button></p><div class="credit-list">${credits}</div><div class="song-details-hint">open details →</div><div class="card-links">${links}</div></article>`;
 }
 function renderActiveFilters() {
   const tags = [];
@@ -154,6 +154,123 @@ function resetFilters() {
   renderFilterGroups();
   renderCards();
 }
+
+function getMidiDownloadName(song, link) {
+  const base = (song.title || link.title || "midi").trim() || "midi";
+  return `${base.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "midi"}.mid`;
+}
+
+async function openMidiPlayer(song, link) {
+  const modal = $("#mediaModal");
+  const content = $("#mediaContent");
+  const midiUrl = String(link.content ?? "").trim();
+  const downloadName = getMidiDownloadName(song, link);
+  let synth = null;
+  let midiFile = null;
+  let isPlaying = false;
+
+  content.innerHTML = `
+    <p class="eyebrow">MIDI</p>
+    <h2>${escapeHtml(song.title)} · ${escapeHtml(link.title)}</h2>
+    <div class="midi-player">
+      <div class="midi-controls">
+        <button class="button button-primary midi-toggle" type="button">Play</button>
+        <a class="button button-secondary midi-download" href="${escapeHtml(midiUrl)}" download="${escapeHtml(downloadName)}" target="_blank" rel="noopener noreferrer">Download</a>
+      </div>
+      <div class="midi-status">Loading MIDI…</div>
+    </div>
+  `;
+
+  const playButton = content.querySelector(".midi-toggle");
+  const status = content.querySelector(".midi-status");
+
+  const stopPlayback = () => {
+    if (!synth) return;
+    Tone.Transport.stop();
+    Tone.Transport.cancel();
+    Tone.Transport.position = 0;
+    isPlaying = false;
+    playButton.textContent = "Play";
+    status.textContent = "Ready to play";
+  };
+
+  const ensureSynth = () => {
+    if (!synth) {
+      synth = new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: "triangle" },
+        envelope: { attack: 0.02, decay: 0.15, sustain: 0.25, release: 0.8 }
+      }).toDestination();
+    }
+    return synth;
+  };
+
+  const playMidi = async () => {
+    if (!window.Midi) {
+      status.textContent = "MIDI library failed to load.";
+      return;
+    }
+
+    if (!midiFile) {
+      try {
+        status.textContent = "Loading MIDI…";
+        const response = await fetch(midiUrl, { mode: "cors" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const buffer = await response.arrayBuffer();
+        midiFile = new Midi(buffer);
+      } catch (error) {
+        status.textContent = "This MIDI could not be loaded in the browser.";
+        console.error(error);
+        return;
+      }
+    }
+
+    await Tone.start();
+    const activeSynth = ensureSynth();
+    Tone.Transport.stop();
+    Tone.Transport.cancel();
+    Tone.Transport.position = 0;
+
+    midiFile.tracks.forEach(track => {
+      track.notes.forEach(note => {
+        Tone.Transport.schedule((time) => {
+          activeSynth.triggerAttackRelease(note.name, note.duration, time, note.velocity ?? 0.8);
+        }, note.time);
+      });
+    });
+
+    const finishTime = (midiFile.duration || 0) + 0.25;
+    Tone.Transport.scheduleOnce(() => {
+      isPlaying = false;
+      playButton.textContent = "Play";
+      status.textContent = "Playback finished";
+      Tone.Transport.cancel();
+      Tone.Transport.position = 0;
+    }, finishTime);
+
+    isPlaying = true;
+    playButton.textContent = "Pause";
+    status.textContent = "Playing…";
+    Tone.Transport.start();
+  };
+
+  playButton.addEventListener("click", async () => {
+    if (!midiUrl) {
+      status.textContent = "No MIDI file available.";
+      return;
+    }
+
+    if (isPlaying) {
+      stopPlayback();
+      return;
+    }
+
+    await playMidi();
+  });
+
+  modal.showModal();
+  status.textContent = "Ready to play";
+}
+
 function openLink(song, link) {
   const modal = $("#mediaModal");
   const content = $("#mediaContent");
@@ -161,12 +278,19 @@ function openLink(song, link) {
     content.innerHTML = `<p class="eyebrow">Lyrics</p><h2>${escapeHtml(link.title)}</h2><div class="markdown-content"><p>${markdown(link.content)}</p></div>`;
   } else if (link.type === "MuseScore") {
     const anchor = document.createElement("a");
-    anchor.href = link.content; anchor.download = ""; anchor.target = "_blank"; anchor.click();
+    anchor.href = link.content;
+    anchor.download = "";
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    anchor.click();
+    return;
+  } else if (link.type === "MIDI" || link.type === "MID") {
+    openMidiPlayer(song, link);
     return;
   } else {
     const tag = link.type === "MP3" ? "audio" : link.type === "MP4" ? "video" : "iframe";
     const className = link.type === "MP3" ? "media-frame audio" : link.type === "MP4" ? "media-frame video" : "media-frame";
-    content.innerHTML = `<p class="eyebrow">${escapeHtml(link.type)}</p><h2>${escapeHtml(song.title)} · ${escapeHtml(link.title)}</h2><${tag} class="${className}" src="${escapeHtml(link.content)}" controls ${tag === "iframe" ? 'title="Document preview"' : ""}></${tag}><a class="open-tab" href="${escapeHtml(link.content)}" target="_blank" rel="noopener">Open in new tab ↗</a>`;
+    content.innerHTML = `<p class="eyebrow">${escapeHtml(link.type)}</p><h2>${escapeHtml(song.title)} · ${escapeHtml(link.title)}</h2><${tag} class="${className}" src="${escapeHtml(link.content)}" controls></${tag}>`;
   }
   modal.showModal();
 }
@@ -216,10 +340,10 @@ function showSongDetails(song) {
     ["Type", song.type], ["Participants", song.participants], ["Category", song.category],
     ["Melody / music", song.melody], ["Words", song.words], ["Arrangement", song.arrangement]
   ];
-  const details = attributes.map(([label, values]) => `<div class="detail-row"><dt>${label}</dt><dd>${values?.length ? values.map(value => `<span class="meta-pill">${escapeHtml(value)}</span>`).join(" ") : "—"}</dd></div>`).join("");
+  const details = attributes.map(([label, values]) => `<div class="detail-row"><dt>${label}</dt><dd>${values?.length ? values.map(value => `<span class="meta-pill">${escapeHtml(value)}</span>`).join("") : "—"}</dd></div>`).join("");
   const collection = song.collection?.title ? `${escapeHtml(song.collection.title)}${song.collection.number ? ` · No. ${song.collection.number}` : ""}` : "—";
   const links = (song.links || []).map((link, index) => `<button class="link-button" type="button" data-song="${songs.indexOf(song)}" data-link="${index}">${escapeHtml(link.title)} <small>${escapeHtml(link.type)}</small></button>`).join("");
-  $("#detailContent").innerHTML = `<p class="eyebrow">Piece details</p><h2>${markdownInline(song.title)}</h2><dl class="detail-list">${details}<div class="detail-row"><dt>Collection</dt><dd>${collection}</dd></div></dl><section class="detail-description"><h3>Description</h3><div class="markdown-content">${markdown(song.description || "No description provided.")}</div></section><section class="detail-links"><h3>Links</h3><div class="card-links">${links || "<span class='song-number'>No links yet</span>"}</div></section>`;
+  $("#detailContent").innerHTML = `<p class="eyebrow">Piece details</p><h2>${markdownInline(song.title)}</h2><dl class="detail-list">${details}<div class="detail-row"><dt>Collection</dt><dd>${collection}</dd></div></dl><div class="detail-description"><h3>Description</h3><div class="markdown-content">${markdown(song.description)}</div></div><div class="detail-links"><h3>Links</h3>${links || "<p>—</p>"}</div>`;
   $("#detailModal").showModal();
 }
 $("#searchInput").addEventListener("input", event => { searchTerm = event.target.value.trim(); $("#clearSearch").style.display = searchTerm ? "block" : "none"; renderCards(); });
@@ -242,8 +366,8 @@ const attributeEditors = $("#attributeEditors");
 function renderAttributeEditors() {
   attributeEditors.innerHTML = multiAttributes.map(attribute => {
     const buttons = uniqueValues(attribute).map(value => `<button class="existing-value" data-existing-attribute="${attribute}" data-existing-value="${escapeHtml(value)}" type="button">+ ${escapeHtml(value)}</button>`).join("");
-    return `<div class="attribute-row"><label>${attribute}</label><div class="value-inputs" data-attribute-values="${attribute}"><div class="existing-values">${buttons || "<span class='generator-hint'>No saved values yet</span>"}</div><div class="value-line"><input data-value-input="${attribute}" placeholder="Type a new ${attribute} value"><button class="remove-line" type="button" aria-label="Remove value">×</button></div><button class="small-add add-value" data-add-value="${attribute}" type="button">+ Add another value</button></div></div>`;
-  }).join("") + `<div class="attribute-row"><label>collection</label><div class="value-inputs"><div class="existing-values">${collectionNames().map(value => `<button class="existing-value" data-existing-collection="${escapeHtml(value)}" type="button">+ ${escapeHtml(value)}</button>`).join("")}</div></div></div>`;
+    return `<div class="attribute-row"><label>${attribute}</label><div class="value-inputs" data-attribute-values="${attribute}"><div class="existing-values">${buttons || "<span class='generator-hint'>No values yet</span>"}</div><div class="value-line"><input data-value-input="${attribute}" placeholder="Add another value"><button class="remove-line" type="button" aria-label="Remove value">×</button></div><button class="small-add" data-add-value="${attribute}" type="button">+ Add value</button></div></div>`;
+  }).join("") + `<div class="attribute-row"><label>collection</label><div class="value-inputs"><div class="existing-values">${collectionNames().map(value => `<button class="existing-value" data-existing-collection="${escapeHtml(value)}" type="button">${escapeHtml(value)}</button>`).join("")}</div><input name="collectionTitle" placeholder="Collection title"><input name="collectionNumber" type="number" min="1" placeholder="Collection number"></div></div>`;
 }
 renderAttributeEditors();
 function addAttributeValue(attribute, value = "", forceNew = false) {
@@ -257,9 +381,10 @@ function addAttributeValue(attribute, value = "", forceNew = false) {
     updateGeneratedCode();
     return;
   }
-  const line = document.createElement("div"); line.className = "value-line";
+  const line = document.createElement("div");
+  line.className = "value-line";
   line.innerHTML = `<input data-value-input="${attribute}" placeholder="Add another value"><button class="remove-line" type="button" aria-label="Remove value">×</button>`;
-  container.insertBefore(line, container.querySelector(".add-value"));
+  container.insertBefore(line, container.querySelector(".small-add"));
   const input = line.querySelector("input");
   input.value = value;
   input.addEventListener("input", updateGeneratedCode);
@@ -268,7 +393,7 @@ function addAttributeValue(attribute, value = "", forceNew = false) {
 function addLinkEditor() {
   const row = document.createElement("div");
   row.className = "link-row";
-  row.innerHTML = `<input class="link-title" data-link-title placeholder="Title"><select data-link-type><option>MP4</option><option>MP3</option><option>MuseScore</option><option>MIDI</option><option>PDF</option><option>Lyrics</option></select><input data-link-content placeholder="URL or Markdown lyrics"><button class="remove-line" type="button" aria-label="Remove link">×</button>`;
+  row.innerHTML = `<input class="link-title" data-link-title placeholder="Title"><select data-link-type><option>MP4</option><option>MP3</option><option>MuseScore</option><option>MIDI</option><option>Lyrics</option><option>PDF</option></select><input class="link-content" data-link-content placeholder="URL or text"><button class="remove-line" type="button" aria-label="Remove link">×</button>`;
   $("#linkEditors").append(row);
   row.querySelectorAll("input, select").forEach(input => input.addEventListener("input", updateGeneratedCode));
 }
@@ -307,9 +432,9 @@ function updateGeneratedCode() {
     arrangement: [...document.querySelectorAll('[data-value-input="arrangement"]')].map(input => input.value.trim()).filter(Boolean),
     collection: { title: form.get("collectionTitle") || "", number: form.get("collectionNumber") ? Number(form.get("collectionNumber")) : null },
     description: form.get("description") || "",
-    links: [...document.querySelectorAll(".link-row")].map(row => ({ title: row.querySelector("[data-link-title]").value.trim(), type: row.querySelector("[data-link-type]").value, content: row.querySelector("[data-link-content]").value.trim() })).filter(link => link.title || link.content)
+    links: [...document.querySelectorAll(".link-row")].map(row => ({ title: row.querySelector("[data-link-title]").value.trim(), type: row.querySelector("[data-link-type]").value, content: row.querySelector("[data-link-content]").value.trim() }))
   };
   $("#generatedCode").value = JSON.stringify(object, null, 2) + ",";
 }
-$("#copyCode").addEventListener("click", async () => { await navigator.clipboard.writeText($("#generatedCode").value); $("#copyStatus").textContent = "Copied"; setTimeout(() => $("#copyStatus").textContent = "", 1800); });
+$("#copyCode").addEventListener("click", async () => { await navigator.clipboard.writeText($("#generatedCode").value); $("#copyStatus").textContent = "Copied"; setTimeout(() => $("#copyStatus").textContent = "", 1500); });
 renderFilterGroups(); renderCards();
