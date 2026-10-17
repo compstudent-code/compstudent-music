@@ -104,6 +104,28 @@
   <dialog class="modal media-modal" id="mediaModal">
     <button class="modal-close" data-close="mediaModal" type="button" aria-label="Close media preview">×</button>
     <div id="mediaContent"></div>
+    <template id="midiPlayerTemplate">
+      <section class="midi-player" aria-label="MIDI player">
+        <p class="eyebrow">MIDI performance</p>
+        <h2 data-midi-title></h2>
+        <div class="midi-roll-wrap">
+          <canvas class="midi-roll" data-midi-roll role="img" aria-label="Piano roll; notes scroll right to left past the center playhead"></canvas>
+          <div class="midi-playhead" aria-hidden="true"><span>PLAYHEAD</span></div>
+          <div class="midi-status" data-midi-status role="status" aria-live="polite">Loading MIDI file…</div>
+        </div>
+        <div class="midi-transport">
+          <div class="midi-transport-buttons" aria-label="Playback controls">
+            <button class="midi-skip" type="button" data-midi-action="back" aria-label="Jump back 10 seconds" title="Jump back 10 seconds"><span aria-hidden="true">↶</span><small>10s</small></button>
+            <button class="midi-play" type="button" data-midi-action="play" aria-label="Play" title="Play"><span aria-hidden="true">▶</span><span>Play</span></button>
+            <button class="midi-pause" type="button" data-midi-action="pause" aria-label="Pause" title="Pause"><span aria-hidden="true">Ⅱ</span><span>Pause</span></button>
+            <button class="midi-skip" type="button" data-midi-action="forward" aria-label="Jump forward 10 seconds" title="Jump forward 10 seconds"><span aria-hidden="true">↷</span><small>10s</small></button>
+          </div>
+          <span class="midi-clock" data-midi-clock aria-live="off">0:00 / 0:00</span>
+        </div>
+        <a class="open-tab midi-source" data-midi-source target="_blank" rel="noopener">Open MIDI file ↗</a>
+        <p class="midi-hint">Direct MIDI links only; the host must allow browser access (CORS).</p>
+      </section>
+    </template>
   </dialog>
   <dialog class="modal detail-modal" id="detailModal">
     <button class="modal-close" data-close="detailModal" type="button" aria-label="Close piece details">×</button>
