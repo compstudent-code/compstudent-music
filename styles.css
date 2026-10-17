@@ -109,6 +109,7 @@ code, textarea#generatedCode { font-family: "DM Mono", monospace; }
 .media-frame { width: 100%; border: 0; border-radius: 8px; background: #eaf6fc; }
 .media-frame.audio { height: 54px; }
 .media-frame.video { max-height: 480px; }
+.media-frame:not(.audio):not(.video) { height: min(72vh, 760px); }
 .open-tab { display: inline-block; margin-top: 12px; color: var(--blue); font-size: 12px; font-weight: 700; }
 .midi-player h2 { padding-right: 24px; }
 .midi-roll-wrap { position: relative; height: clamp(240px, 38vw, 350px); margin-top: 19px; overflow: hidden; border: 1px solid #c8e3f0; border-radius: 12px; background: #102a3a; box-shadow: inset 0 0 35px rgba(77, 187, 224, .08); }
