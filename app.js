@@ -27,7 +27,7 @@ const songs = [
     description: "A Scripture song I created on the spur of the moment when my mother said she needed one for John 10:9.",
     links: [
       { title: "Score", type: "PDF", content: "files/i-am-the-door/PDF.pdf" },
-      { title: "Listen", type: "MIDI", content: "files/i-am-the-door/MIDI.MID" }
+      { title: "Listen", type: "MIDI", content: "files/i-am-the-door/MIDI.mid" }
     ]
   },
 ];
