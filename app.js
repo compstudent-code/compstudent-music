@@ -11,8 +11,9 @@ const songs = [
     collection: {},
     description: "One of my first songs. I wrote it after my father, a pastor, preached on Joshua 24.",
     links: [
-      { title: "Score", type: "PDF", content: "https://example.com/blue-hour.pdf" },
-      { title: "Listen", type: "MP3", content: "https://example.com/blue-hour.mp3" }
+      { title: "Score", type: "PDF", content: "files/we-will-serve-the-lord/PDF.pdf" },
+      { title: "Editable MSCZ", type: "MuseScore", content: "files/we-will-serve-the-lord/MuseScore.mscz" },
+      { title: "Listen", type: "MIDI", content: "files/we-will-serve-the-lord/MIDI.mid" }
     ]
   },
   {
@@ -282,8 +283,8 @@ function parseMidi(buffer) {
 }
 function setMidiStatus(state, message, type = "ready") {
   if (!state.status.isConnected) return;
-  state.status.textContent = message;
-  state.status.dataset.state = type;
+  state.status.hidden = type !== "error";
+  state.status.textContent = type === "error" ? message : "";
 }
 function formatMidiTime(seconds, showTenths = false) {
   const wholeSeconds = Math.max(0, Math.floor(seconds));
@@ -296,8 +297,9 @@ function currentMidiPosition(state) {
 }
 function updateMidiControls(state) {
   const loaded = Boolean(state.notes);
-  state.playButton.disabled = !loaded || state.playing;
-  state.pauseButton.disabled = !loaded || !state.playing;
+  state.playButton.disabled = !loaded;
+  state.playButton.dataset.playing = String(state.playing);
+  state.playButton.setAttribute("aria-label", state.playing ? "Pause" : "Play");
   state.backButton.disabled = !loaded || state.position <= 0;
   state.forwardButton.disabled = !loaded || state.position >= state.duration;
   const showTenths = state.duration < 10;
@@ -442,7 +444,6 @@ function animateMidiPlayback(state) {
     state.position = state.duration;
     state.playing = false;
     stopMidiVoices(state);
-    setMidiStatus(state, "Playback complete.");
     updateMidiView(state);
     return;
   }
@@ -465,7 +466,6 @@ async function playMidi(state) {
   state.anchorPosition = state.position;
   state.anchorContextTime = state.context.currentTime;
   scheduleMidiNotes(state);
-  setMidiStatus(state, "Playing");
   updateMidiView(state);
   state.frame = requestAnimationFrame(() => animateMidiPlayback(state));
 }
@@ -475,7 +475,6 @@ function pauseMidi(state) {
   state.playing = false;
   cancelAnimationFrame(state.frame);
   stopMidiVoices(state);
-  setMidiStatus(state, "Paused");
   updateMidiView(state);
 }
 function seekMidi(state, offset) {
@@ -517,12 +516,8 @@ async function loadMidiPlayer(state, source) {
   state.lowestPitch = parsed.lowestPitch;
   state.highestPitch = parsed.highestPitch;
   state.position = 0;
-  state.playButton.disabled = false;
-  state.backButton.disabled = true;
-  state.forwardButton.disabled = state.duration <= 0;
   state.canvas.setAttribute("aria-label", `Piano roll with ${state.notes.length} notes; notes scroll right to left past the center playhead`);
-  const noteLabel = state.notes.length === 1 ? "note" : "notes";
-  setMidiStatus(state, `Ready · ${state.notes.length} ${noteLabel}`);
+  setMidiStatus(state, "");
   updateMidiView(state);
 }
 function openMidiPlayer(song, link) {
@@ -533,8 +528,7 @@ function openMidiPlayer(song, link) {
     canvas: content.querySelector("[data-midi-roll]"),
     status: content.querySelector("[data-midi-status]"),
     clock: content.querySelector("[data-midi-clock]"),
-    playButton: content.querySelector('[data-midi-action="play"]'),
-    pauseButton: content.querySelector('[data-midi-action="pause"]'),
+    playButton: content.querySelector('[data-midi-action="toggle"]'),
     backButton: content.querySelector('[data-midi-action="back"]'),
     forwardButton: content.querySelector('[data-midi-action="forward"]'),
     sourceLink: content.querySelector("[data-midi-source]"),
@@ -547,10 +541,7 @@ function openMidiPlayer(song, link) {
     voices: [],
     frame: 0
   };
-  state.playButton.disabled = true;
-  state.pauseButton.disabled = true;
-  state.backButton.disabled = true;
-  state.forwardButton.disabled = true;
+  updateMidiControls(state);
   content.querySelector("[data-midi-title]").textContent = `${song.title} · ${link.title}`;
   state.sourceLink.href = link.content;
   state.resize = () => drawMidiRoll(state);
@@ -609,10 +600,11 @@ document.addEventListener("click", event => {
     event.preventDefault();
     event.stopPropagation();
     const state = midiPlayback;
+    if (!state) return;
     const action = midiAction.dataset.midiAction;
-    const actionPromise = action === "play" ? playMidi(state)
-      : action === "pause" ? Promise.resolve(pauseMidi(state))
-        : Promise.resolve(seekMidi(state, action === "back" ? -10 : 10));
+    const actionPromise = action === "toggle"
+      ? state.playing ? Promise.resolve(pauseMidi(state)) : playMidi(state)
+      : Promise.resolve(seekMidi(state, action === "back" ? -10 : 10));
     actionPromise.catch(error => {
       if (midiPlayback !== state) return;
       console.error("MIDI playback failed:", error);

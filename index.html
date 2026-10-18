@@ -110,20 +110,25 @@
         <h2 data-midi-title></h2>
         <div class="midi-roll-wrap">
           <canvas class="midi-roll" data-midi-roll role="img" aria-label="Piano roll; notes scroll right to left past the center playhead"></canvas>
-          <div class="midi-playhead" aria-hidden="true"><span>PLAYHEAD</span></div>
-          <div class="midi-status" data-midi-status role="status" aria-live="polite">Loading MIDI file…</div>
+          <div class="midi-playhead" aria-hidden="true"></div>
         </div>
+        <p class="midi-status" data-midi-status role="status" aria-live="polite" hidden></p>
         <div class="midi-transport">
           <div class="midi-transport-buttons" aria-label="Playback controls">
-            <button class="midi-skip" type="button" data-midi-action="back" aria-label="Jump back 10 seconds" title="Jump back 10 seconds"><span aria-hidden="true">↶</span><small>10s</small></button>
-            <button class="midi-play" type="button" data-midi-action="play" aria-label="Play" title="Play"><span aria-hidden="true">▶</span><span>Play</span></button>
-            <button class="midi-pause" type="button" data-midi-action="pause" aria-label="Pause" title="Pause"><span aria-hidden="true">Ⅱ</span><span>Pause</span></button>
-            <button class="midi-skip" type="button" data-midi-action="forward" aria-label="Jump forward 10 seconds" title="Jump forward 10 seconds"><span aria-hidden="true">↷</span><small>10s</small></button>
+            <button class="midi-skip" type="button" data-midi-action="back" aria-label="Jump back 10 seconds" disabled>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.64-6.36L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>
+            </button>
+            <button class="midi-toggle" type="button" data-midi-action="toggle" aria-label="Play" disabled>
+              <svg class="midi-play-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M7 4.8v14.4L19 12 7 4.8Z"/></svg>
+              <svg class="midi-pause-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M7 5h4v14H7zM15 5h4v14h-4z"/></svg>
+            </button>
+            <button class="midi-skip" type="button" data-midi-action="forward" aria-label="Jump forward 10 seconds" disabled>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5M12 7v5l-3 2"/></svg>
+            </button>
           </div>
           <span class="midi-clock" data-midi-clock aria-live="off">0:00 / 0:00</span>
         </div>
         <a class="open-tab midi-source" data-midi-source target="_blank" rel="noopener">Open MIDI file ↗</a>
-        <p class="midi-hint">Direct MIDI links only; the host must allow browser access (CORS).</p>
       </section>
     </template>
   </dialog>
