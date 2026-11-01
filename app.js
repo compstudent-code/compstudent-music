@@ -143,6 +143,29 @@ function resetFilters() {
   renderCards();
 }
 let midiPlayback = null;
+const midiInstrumentNames = [
+  "acoustic_grand_piano", "bright_acoustic_piano", "electric_grand_piano", "honkytonk_piano",
+  "electric_piano_1", "electric_piano_2", "harpsichord", "clavinet", "celesta", "glockenspiel",
+  "music_box", "vibraphone", "marimba", "xylophone", "tubular_bells", "dulcimer", "drawbar_organ",
+  "percussive_organ", "rock_organ", "church_organ", "reed_organ", "accordion", "harmonica",
+  "tango_accordion", "acoustic_guitar_nylon", "acoustic_guitar_steel", "electric_guitar_jazz",
+  "electric_guitar_clean", "electric_guitar_muted", "overdriven_guitar", "distortion_guitar",
+  "guitar_harmonics", "acoustic_bass", "electric_bass_finger", "electric_bass_pick", "fretless_bass",
+  "slap_bass_1", "slap_bass_2", "synth_bass_1", "synth_bass_2", "violin", "viola", "cello",
+  "contrabass", "tremolo_strings", "pizzicato_strings", "orchestral_harp", "timpani", "string_ensemble_1",
+  "string_ensemble_2", "synth_strings_1", "synth_strings_2", "choir_aahs", "voice_oohs", "synth_choir",
+  "orchestra_hit", "trumpet", "trombone", "tuba", "muted_trumpet", "french_horn", "brass_section",
+  "synth_brass_1", "synth_brass_2", "soprano_sax", "alto_sax", "tenor_sax", "baritone_sax", "oboe",
+  "english_horn", "bassoon", "clarinet", "piccolo", "flute", "recorder", "pan_flute", "blown_bottle",
+  "shakuhachi", "whistle", "ocarina", "lead_1_square", "lead_2_sawtooth", "lead_3_calliope",
+  "lead_4_chiff", "lead_5_charang", "lead_6_voice", "lead_7_fifths", "lead_8_bass__lead", "pad_1_new_age",
+  "pad_2_warm", "pad_3_polysynth", "pad_4_choir", "pad_5_bowed", "pad_6_metallic", "pad_7_halo",
+  "pad_8_sweep", "fx_1_rain", "fx_2_soundtrack", "fx_3_crystal", "fx_4_atmosphere", "fx_5_brightness",
+  "fx_6_goblins", "fx_7_echoes", "fx_8_scifi", "sitar", "banjo", "shamisen", "koto", "kalimba",
+  "bagpipe", "fiddle", "shanai", "tinkle_bell", "agogo", "steel_drums", "woodblock", "taiko_drum",
+  "melodic_tom", "synth_drum", "reverse_cymbal", "guitar_fret_noise", "breath_noise", "seashore",
+  "bird_tweet", "telephone_ring", "helicopter", "applause", "gunshot"
+];
 function parseMidi(buffer) {
   const bytes = new Uint8Array(buffer);
   const readAscii = offset => String.fromCharCode(...bytes.subarray(offset, offset + 4));
@@ -166,6 +189,7 @@ function parseMidi(buffer) {
   if (!division) throw new Error("The MIDI file has an invalid timing resolution.");
 
   const notes = [];
+  const tracks = [];
   const tempoEvents = [];
   let offset = 8 + headerLength;
   let tracksRead = 0;
@@ -179,6 +203,8 @@ function parseMidi(buffer) {
     offset = trackEnd;
     if (chunkName !== "MTrk") continue;
     tracksRead++;
+    const track = { index: tracks.length, name: "", programs: new Set(), programsByChannel: new Map() };
+    tracks.push(track);
 
     let cursor = trackStart;
     let tick = 0;
@@ -219,6 +245,10 @@ function parseMidi(buffer) {
         const metaType = bytes[cursor++];
         const length = readVariableLength();
         if (cursor + length > trackEnd) throw new Error("A MIDI meta event is truncated.");
+        if ((metaType === 0x03 || metaType === 0x04) && length) {
+          const value = new TextDecoder().decode(bytes.subarray(cursor, cursor + length)).trim();
+          if (metaType === 0x03) track.name = value;
+        }
         if (metaType === 0x51 && length === 3) {
           const microsecondsPerBeat = (bytes[cursor] << 16) | (bytes[cursor + 1] << 8) | bytes[cursor + 2];
           if (microsecondsPerBeat) tempoEvents.push({ tick, microsecondsPerBeat, order: tempoEvents.length });
@@ -237,12 +267,18 @@ function parseMidi(buffer) {
       const channel = status & 0x0f;
       const first = firstData === null ? readDataByte() : firstData;
       const second = command === 0x0c || command === 0x0d ? 0 : readDataByte();
+      if (command === 0x0c) {
+        track.programsByChannel.set(channel, first);
+        continue;
+      }
       if (command !== 0x08 && command !== 0x09) continue;
 
       const pitch = first;
       const key = `${channel}:${pitch}`;
       if (command === 0x09 && second > 0) {
-        const note = { pitch, velocity: second, startTick: tick, endTick: null };
+        const program = track.programsByChannel.get(channel) ?? 0;
+        const note = { pitch, velocity: second, trackIndex: track.index, program, startTick: tick, endTick: null };
+        track.programs.add(program);
         notes.push(note);
         if (!openNotes.has(key)) openNotes.set(key, []);
         openNotes.get(key).push(note);
@@ -287,16 +323,25 @@ function parseMidi(buffer) {
     const segment = tempoSegments[low];
     return segment.seconds + (targetTick - segment.tick) * segment.microsecondsPerBeat / division / 1000000;
   };
+  const activeTracks = tracks.filter(track => track.programs.size);
+  const trackIndexes = new Map(activeTracks.map((track, index) => [track.index, index]));
   const timedNotes = notes.map(note => ({
     pitch: note.pitch,
     velocity: note.velocity,
+    trackIndex: trackIndexes.get(note.trackIndex),
+    program: note.program,
     start: toSeconds(note.startTick),
     end: toSeconds(note.endTick)
   })).sort((a, b) => a.start - b.start);
+  activeTracks.forEach((track, index) => {
+    track.index = index;
+    track.programs = [...track.programs];
+    track.color = `hsl(${Math.round(index * 137.508 % 360)}, 80%, 68%)`;
+  });
   const duration = timedNotes.reduce((longest, note) => Math.max(longest, note.end), 0);
   const lowestPitch = timedNotes.reduce((lowest, note) => Math.min(lowest, note.pitch), 127);
   const highestPitch = timedNotes.reduce((highest, note) => Math.max(highest, note.pitch), 0);
-  return { notes: timedNotes, duration, lowestPitch, highestPitch };
+  return { notes: timedNotes, tracks: activeTracks, duration, lowestPitch, highestPitch };
 }
 function setMidiStatus(state, message, type = "ready") {
   if (!state.status.isConnected) return;
@@ -314,7 +359,7 @@ function currentMidiPosition(state) {
 }
 function updateMidiControls(state) {
   const loaded = Boolean(state.notes);
-  state.playButton.disabled = !loaded;
+  state.playButton.disabled = !loaded || state.starting;
   state.playButton.dataset.playing = String(state.playing);
   state.playButton.setAttribute("aria-label", state.playing ? "Pause" : "Play");
   state.backButton.disabled = !loaded || state.position <= 0;
@@ -381,15 +426,16 @@ function drawMidiRoll(state) {
     if (x > width || x + noteWidth < 0) return;
     const y = height - (note.pitch - lowestPitch + 1) * rowHeight + Math.max(1, rowHeight * .14);
     const noteHeight = Math.max(2, rowHeight * .72);
-    const hue = 184 + (note.pitch % 9) * 5;
-    const brightness = .55 + note.velocity / 127 * .35;
+    const track = state.tracks[note.trackIndex];
+    if (!state.selectedTracks.has(note.trackIndex)) return;
+    const brightness = .62 + note.velocity / 127 * .3;
     const active = position >= note.start && position < note.end;
     context.globalAlpha = active ? 1 : brightness;
     context.shadowBlur = active ? 17 : 8;
-    context.shadowColor = `hsla(${hue}, 95%, 68%, .7)`;
+    context.shadowColor = track.color;
     const fill = context.createLinearGradient(x, y, x, y + noteHeight);
-    fill.addColorStop(0, `hsl(${hue}, 88%, 78%)`);
-    fill.addColorStop(1, `hsl(${hue}, 78%, 51%)`);
+    fill.addColorStop(0, track.color);
+    fill.addColorStop(1, track.color);
     context.fillStyle = fill;
     context.fillRect(x, y, Math.min(noteWidth, width - x), noteHeight);
   });
@@ -415,42 +461,58 @@ function stopMidiVoices(state) {
   const now = state.context.currentTime;
   [...state.voices].forEach(voice => {
     if (voice.ended) return;
-    voice.gain.gain.cancelScheduledValues(now);
-    voice.gain.gain.setTargetAtTime(0.0001, now, 0.008);
-    voice.oscillator.stop(now + 0.04);
+    try {
+      voice.stop(now + 0.025);
+    } catch (error) {
+      if (error.name !== "InvalidStateError") throw error;
+    }
   });
   state.voices = [];
+}
+function selectedMidiPrograms(state) {
+  const programs = new Set();
+  state.notes.forEach(note => {
+    if (state.selectedTracks.has(note.trackIndex)) {
+      programs.add(state.pianoOverride.checked ? 0 : note.program);
+    }
+  });
+  return [...programs];
+}
+async function loadMidiInstrument(state, program) {
+  if (!state.instrumentPromises.has(program)) {
+    if (!window.Soundfont) throw new Error("The sampled instrument library did not load. Check your internet connection and try again.");
+    const instrumentName = midiInstrumentNames[program];
+    const loading = window.Soundfont.instrument(state.context, instrumentName, {
+      soundfont: "FluidR3_GM",
+      destination: state.masterGain
+    }).then(instrument => {
+      state.instrumentPromises.set(program, instrument);
+      return instrument;
+    }).catch(error => {
+      state.instrumentPromises.delete(program);
+      throw new Error(`Could not load the ${instrumentName.replaceAll("_", " ")} soundfont: ${error.message}`);
+    });
+    state.instrumentPromises.set(program, loading);
+  }
+  return state.instrumentPromises.get(program);
 }
 function scheduleMidiNotes(state) {
   const context = state.context;
   const now = context.currentTime + 0.015;
   state.notes.forEach(note => {
+    if (!state.selectedTracks.has(note.trackIndex)) return;
     if (note.end <= state.position) return;
     const start = now + Math.max(0, note.start - state.position);
-    const end = now + Math.max(0.03, note.end - state.position);
-    const duration = end - start;
-    const attackEnd = start + Math.min(0.025, duration * 0.2);
-    const releaseStart = Math.max(attackEnd, end - 0.08);
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    const amplitude = Math.max(0.0001, note.velocity / 127 * 0.13);
-    oscillator.type = "triangle";
-    oscillator.frequency.value = 440 * Math.pow(2, (note.pitch - 69) / 12);
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.linearRampToValueAtTime(amplitude, attackEnd);
-    gain.gain.setValueAtTime(amplitude, releaseStart);
-    gain.gain.linearRampToValueAtTime(0.0001, end);
-    oscillator.connect(gain);
-    gain.connect(state.masterGain);
-    const voice = { oscillator, gain, ended: false };
-    oscillator.onended = () => {
+    const player = state.instrumentPromises.get(state.pianoOverride.checked ? 0 : note.program);
+    if (!player || typeof player.then === "function") return;
+    const voice = player.play(note.pitch, start, {
+      duration: Math.max(0.03, note.end - Math.max(note.start, state.position)),
+      gain: note.velocity / 127 * 0.24
+    });
+    voice.onended = () => {
       voice.ended = true;
-      oscillator.disconnect();
-      gain.disconnect();
       state.voices = state.voices.filter(item => item !== voice);
     };
-    oscillator.start(start);
-    oscillator.stop(end + 0.045);
     state.voices.push(voice);
   });
 }
@@ -468,16 +530,32 @@ function animateMidiPlayback(state) {
   state.frame = requestAnimationFrame(() => animateMidiPlayback(state));
 }
 async function playMidi(state) {
-  if (!state.notes || state.playing) return;
-  if (!window.AudioContext) throw new Error("Web Audio is not available in this browser.");
-  if (!state.context) {
-    state.context = new AudioContext();
-    state.masterGain = state.context.createGain();
-    state.masterGain.gain.value = 0.55;
-    state.masterGain.connect(state.context.destination);
+  if (!state.notes || state.playing || state.starting) return;
+  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextConstructor) throw new Error("Web Audio is not available in this browser.");
+  state.starting = true;
+  updateMidiControls(state);
+  try {
+    if (!state.context) {
+      state.context = new AudioContextConstructor();
+      state.masterGain = state.context.createGain();
+      state.masterGain.gain.value = 0.55;
+      state.masterGain.connect(state.context.destination);
+    }
+    await state.context.resume();
+    while (midiPlayback === state && state.starting) {
+      const requiredPrograms = selectedMidiPrograms(state);
+      await Promise.all(requiredPrograms.map(program => loadMidiInstrument(state, program)));
+      const remainingPrograms = selectedMidiPrograms(state);
+      if (requiredPrograms.length === remainingPrograms.length && requiredPrograms.every(program => remainingPrograms.includes(program))) break;
+    }
+  } catch (error) {
+    state.starting = false;
+    updateMidiControls(state);
+    throw error;
   }
-  await state.context.resume();
-  if (midiPlayback !== state) return;
+  if (midiPlayback !== state || !state.starting) return;
+  state.starting = false;
   if (state.position >= state.duration) state.position = 0;
   state.playing = true;
   state.anchorPosition = state.position;
@@ -505,6 +583,31 @@ function seekMidi(state, offset) {
   }
   updateMidiView(state);
 }
+function updateMidiSelection(state) {
+  state.selectedTracks = new Set([...state.trackList.querySelectorAll("input:checked")].map(input => Number(input.value)));
+  if (state.playing) rescheduleMidiPlayback(state);
+  drawMidiRoll(state);
+}
+async function rescheduleMidiPlayback(state) {
+  const version = ++state.scheduleVersion;
+  state.position = currentMidiPosition(state);
+  stopMidiVoices(state);
+  state.anchorPosition = state.position;
+  state.anchorContextTime = state.context.currentTime;
+  try {
+    await Promise.all(selectedMidiPrograms(state).map(program => loadMidiInstrument(state, program)));
+    if (midiPlayback !== state || !state.playing || state.scheduleVersion !== version) return;
+    state.position = currentMidiPosition(state);
+    state.anchorPosition = state.position;
+    state.anchorContextTime = state.context.currentTime;
+    scheduleMidiNotes(state);
+  } catch (error) {
+    if (midiPlayback === state && state.scheduleVersion === version) {
+      console.error("MIDI instrument could not be changed:", error);
+      setMidiStatus(state, `Playback error: ${error.message}`, "error");
+    }
+  }
+}
 function stopMidiPlayback() {
   if (!midiPlayback) return;
   const state = midiPlayback;
@@ -529,6 +632,30 @@ async function loadMidiPlayer(state, source) {
   const parsed = parseMidi(await response.arrayBuffer());
   if (midiPlayback !== state) return;
   state.notes = parsed.notes;
+  state.tracks = parsed.tracks;
+  state.selectedTracks = new Set(state.tracks.map(track => track.index));
+  state.tracks.forEach(track => {
+    const option = document.createElement("label");
+    option.className = "midi-track-option";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = String(track.index);
+    checkbox.checked = true;
+    const color = document.createElement("span");
+    color.className = "midi-track-color";
+    color.style.backgroundColor = track.color;
+    const name = document.createElement("span");
+    const programs = track.programs.map(program => midiInstrumentNames[program].replaceAll("_", " "));
+    const sameName = track.name ? state.tracks.filter(item => item.name === track.name) : [];
+    const duplicateSuffix = sameName.length > 1 ? ` (${sameName.indexOf(track) + 1})` : "";
+    name.textContent = `${track.name || `Track ${track.index + 1}`}${duplicateSuffix}${programs.length ? ` · ${[...new Set(programs)].join(", ")}` : ""}`;
+    option.append(checkbox, color, name);
+    state.trackList.append(option);
+  });
+  state.trackList.addEventListener("change", () => updateMidiSelection(state));
+  state.pianoOverride.addEventListener("change", () => {
+    if (state.playing) rescheduleMidiPlayback(state);
+  });
   state.duration = parsed.duration;
   state.lowestPitch = parsed.lowestPitch;
   state.highestPitch = parsed.highestPitch;
@@ -548,6 +675,8 @@ function openMidiPlayer(song, link) {
     playButton: content.querySelector('[data-midi-action="toggle"]'),
     backButton: content.querySelector('[data-midi-action="back"]'),
     forwardButton: content.querySelector('[data-midi-action="forward"]'),
+    trackList: content.querySelector("[data-midi-track-list]"),
+    pianoOverride: content.querySelector("[data-midi-piano-override]"),
     sourceLink: content.querySelector("[data-midi-source]"),
     notes: null,
     duration: 0,
@@ -556,6 +685,11 @@ function openMidiPlayer(song, link) {
     context: null,
     masterGain: null,
     voices: [],
+    instrumentPromises: new Map(),
+    tracks: [],
+    selectedTracks: new Set(),
+    scheduleVersion: 0,
+    starting: false,
     frame: 0
   };
   updateMidiControls(state);
