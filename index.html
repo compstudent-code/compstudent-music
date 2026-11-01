@@ -108,6 +108,13 @@
       <section class="midi-player" aria-label="MIDI player">
         <p class="eyebrow">MIDI performance</p>
         <h2 data-midi-title></h2>
+        <div class="midi-mixer">
+          <fieldset class="midi-track-controls">
+            <legend>Tracks</legend>
+            <div class="midi-track-list" data-midi-track-list></div>
+          </fieldset>
+          <label class="midi-piano-override"><input type="checkbox" data-midi-piano-override> All tracks as piano</label>
+        </div>
         <div class="midi-roll-wrap">
           <canvas class="midi-roll" data-midi-roll role="img" aria-label="Piano roll; notes scroll right to left past the center playhead"></canvas>
           <div class="midi-playhead" aria-hidden="true"></div>
@@ -136,6 +143,7 @@
     <button class="modal-close" data-close="detailModal" type="button" aria-label="Close piece details">×</button>
     <div id="detailContent"></div>
   </dialog>
+  <script src="https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
