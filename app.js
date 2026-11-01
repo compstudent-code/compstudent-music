@@ -31,6 +31,23 @@ const songs = [
       { title: "Listen", type: "MIDI", content: "files/i-am-the-door/MIDI.mid" }
     ]
   },
+  {
+    title: "For Ever, O LORD",
+    type: ["arrangement"],
+    participants: ["Voice", "Piano"],
+    category: ["Scripture song"],
+    melody: ["Denise Sheperd"],
+    words: ["Bible"],
+    arrangement: ["Josiah Reitenbach"],
+    collection: { title: "Children's class Scripture songs", number: 1 },
+    description: "An arrangement for a children's class Scripture memorization song by a lady in my church.",
+    links: [
+      { title: "Score", type: "PDF", content: "files/for-ever-o-lord/PDF.pdf" },
+      { title: "Audio", type: "MP3", content: "files/for-ever-o-lord/Audio.mp3" },
+      { title: "Editable MSCZ", type: "MuseScore", content: "files/for-ever-o-lord/MuseScore.mscz" },
+      { title: "Listen", type: "MIDI", content: "files/for-ever-o-lord/MIDI.mid" }
+    ]
+  },
 ];
 
 const multiAttributes = ["type", "participants", "category", "melody", "words", "arrangement"];
